@@ -1,0 +1,177 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum Role {
+  CUSTOMER
+  ADMIN
+}
+
+enum Tier {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+  DIAMOND
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+}
+
+enum MissionType {
+  REFERRAL
+  FIRST_LOAN_APPLICATION
+  FIRST_LOAN_APPROVAL
+  FIRST_REPAYMENT
+}
+
+enum MissionStatus {
+  IN_PROGRESS
+  CLAIMABLE
+  CLAIMED
+}
+
+enum PointsSource {
+  MISSION
+  CHECK_IN
+  REDEEM
+  REFERRAL
+  EXPIRE
+}
+
+enum RedemptionStatus {
+  PENDING_PICKUP
+  COLLECTED
+  EXPIRED
+}
+
+// ─── Models ───────────────────────────────────────────────────────────────────
+
+model User {
+  id              Int      @id @default(autoincrement())
+  email           String   @unique
+  password        String
+  name            String?
+  phone           String?  @unique
+  role            Role     @default(CUSTOMER)
+
+  // Points & tier
+  points          Int      @default(0)
+  tier            Tier     @default(BRONZE)
+
+  // Check-in streak (per customer, no midnight job needed)
+  lastCheckInDate DateTime? @db.Date
+  currentStreakDay Int       @default(0)
+
+  // Referral
+  referralCode    String   @unique
+  referredById    Int?
+  referredBy      User?    @relation("Referrals", fields: [referredById], references: [id])
+  referrals       User[]   @relation("Referrals")
+
+  // Relations
+  pointsHistory    PointsHistory[]
+  checkIns         CheckIn[]
+  customerMissions CustomerMission[]
+  redemptions      Redemption[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Campaign {
+  id          Int            @id @default(autoincrement())
+  title       String
+  description String?
+  status      CampaignStatus @default(DRAFT)
+  startDate   DateTime?
+  endDate     DateTime?
+  missions    Mission[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+model Mission {
+  id               Int               @id @default(autoincrement())
+  campaignId       Int
+  campaign         Campaign          @relation(fields: [campaignId], references: [id])
+  type             MissionType
+  title            String
+  points           Int
+  iconUrl          String?
+  customerMissions CustomerMission[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+}
+
+model CustomerMission {
+  id         Int           @id @default(autoincrement())
+  customerId Int
+  customer   User          @relation(fields: [customerId], references: [id])
+  missionId  Int
+  mission    Mission       @relation(fields: [missionId], references: [id])
+  status     MissionStatus @default(IN_PROGRESS)
+  claimedAt  DateTime?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@unique([customerId, missionId])
+}
+
+model CheckIn {
+  id           Int      @id @default(autoincrement())
+  customerId   Int
+  customer     User     @relation(fields: [customerId], references: [id])
+  checkInDate  DateTime @db.Date
+  day          Int
+  points       Int
+  createdAt    DateTime @default(now())
+
+  @@unique([customerId, checkInDate])
+}
+
+model PointsHistory {
+  id          Int          @id @default(autoincrement())
+  customerId  Int
+  customer    User         @relation(fields: [customerId], references: [id])
+  source      PointsSource
+  missionType MissionType?
+  title       String
+  points      Int          // signed: positive = earned, negative = spent
+  createdAt   DateTime     @default(now())
+}
+
+model RewardItem {
+  id          Int          @id @default(autoincrement())
+  title       String
+  points      Int
+  imageUrl    String?
+  stock       Int          @default(0)
+  isActive    Boolean      @default(true)
+  redemptions Redemption[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model Redemption {
+  id              Int              @id @default(autoincrement())
+  customerId      Int
+  customer        User             @relation(fields: [customerId], references: [id])
+  rewardItemId    Int
+  rewardItem      RewardItem       @relation(fields: [rewardItemId], references: [id])
+  points          Int              // cost at time of redemption
+  status          RedemptionStatus @default(PENDING_PICKUP)
+  idempotencyKey  String?          @unique
+  redeemedAt      DateTime         @default(now())
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+}
